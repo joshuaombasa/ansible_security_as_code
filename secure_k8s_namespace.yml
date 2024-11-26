@@ -1,0 +1,95 @@
+---
+- name: Secure Kubernetes Namespace
+  hosts: localhost
+  tasks:
+    - name: Ensure namespace exists
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: Namespace
+          metadata:
+            name: secure-namespace
+
+    - name: Apply Resource Quotas to the namespace
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: ResourceQuota
+          metadata:
+            name: resource-quota
+            namespace: secure-namespace
+          spec:
+            hard:
+              pods: "10"
+              requests.cpu: "4"
+              requests.memory: "8Gi"
+              limits.cpu: "8"
+              limits.memory: "16Gi"
+
+    - name: Apply LimitRange to enforce pod resource limits
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: v1
+          kind: LimitRange
+          metadata:
+            name: limits
+            namespace: secure-namespace
+          spec:
+            limits:
+              - default:
+                  cpu: "1"
+                  memory: "512Mi"
+                defaultRequest:
+                  cpu: "500m"
+                  memory: "256Mi"
+                type: Container
+
+    - name: Apply PodSecurityPolicy (PSP) to enforce non-root users
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: policy/v1beta1
+          kind: PodSecurityPolicy
+          metadata:
+            name: non-root-policy
+          spec:
+            privileged: false
+            runAsUser:
+              rule: MustRunAsNonRoot
+            seLinux:
+              rule: RunAsAny
+            supplementalGroups:
+              rule: RunAsAny
+            fsGroup:
+              rule: RunAsAny
+            volumes:
+              - configMap
+              - emptyDir
+              - persistentVolumeClaim
+              - secret
+
+    - name: Apply NetworkPolicy to restrict ingress and egress traffic
+      kubernetes.core.k8s:
+        state: present
+        definition:
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: restrict-traffic
+            namespace: secure-namespace
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress
+            ingress:
+              - from:
+                  - podSelector:
+                      matchLabels: {}
+            egress:
+              - to:
+                  - podSelector:
+                      matchLabels: {}
