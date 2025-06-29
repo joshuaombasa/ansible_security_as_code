@@ -1,8 +1,7 @@
----
 - name: Secure Kubernetes Namespace
   hosts: localhost
   tasks:
-    - name: Ensure namespace exists
+    - name: Ensure namespace with PodSecurity labels
       kubernetes.core.k8s:
         state: present
         definition:
@@ -10,12 +9,15 @@
           kind: Namespace
           metadata:
             name: secure-namespace
+            labels:
+              pod-security.kubernetes.io/enforce: "restricted"
+              pod-security.kubernetes.io/enforce-version: "latest"
 
     - name: Apply Resource Quotas to the namespace
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
+          apiVersion: v1  # ResourceQuota
           kind: ResourceQuota
           metadata:
             name: resource-quota
@@ -32,7 +34,7 @@
       kubernetes.core.k8s:
         state: present
         definition:
-          apiVersion: v1
+          apiVersion: v1  # LimitRange
           kind: LimitRange
           metadata:
             name: limits
@@ -46,30 +48,6 @@
                   cpu: "500m"
                   memory: "256Mi"
                 type: Container
-
-    - name: Apply PodSecurityPolicy (PSP) to enforce non-root users
-      kubernetes.core.k8s:
-        state: present
-        definition:
-          apiVersion: policy/v1beta1
-          kind: PodSecurityPolicy
-          metadata:
-            name: non-root-policy
-          spec:
-            privileged: false
-            runAsUser:
-              rule: MustRunAsNonRoot
-            seLinux:
-              rule: RunAsAny
-            supplementalGroups:
-              rule: RunAsAny
-            fsGroup:
-              rule: RunAsAny
-            volumes:
-              - configMap
-              - emptyDir
-              - persistentVolumeClaim
-              - secret
 
     - name: Apply NetworkPolicy to restrict ingress and egress traffic
       kubernetes.core.k8s:
@@ -87,9 +65,11 @@
               - Egress
             ingress:
               - from:
-                  - podSelector:
-                      matchLabels: {}
+                  - namespaceSelector:
+                      matchLabels:
+                        name: secure-namespace
             egress:
               - to:
-                  - podSelector:
-                      matchLabels: {}
+                  - namespaceSelector:
+                      matchLabels:
+                        name: secure-namespace
